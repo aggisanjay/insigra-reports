@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { createClient } from "@/lib/supabase/client";
 import { 
   Eye, 
   EyeOff, 
@@ -12,8 +11,7 @@ import {
   AlertCircle, 
   ArrowRight,
   Loader2,
-  Building2,
-  Sparkles
+  Building2
 } from "lucide-react";
 
 export function LoginForm() {
@@ -25,9 +23,8 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [activeButton, setActiveButton] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const supabase = createClient();
 
   const validateForm = () => {
     if (!email.trim()) {
@@ -46,70 +43,48 @@ export function LoginForm() {
     return true;
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const executeServerLogin = async (loginEmail: string, loginPass: string) => {
+    setLoading(true);
     setErrorMessage(null);
 
-    if (!validateForm()) return;
-
-    setLoading(true);
-
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password: password,
+      const res = await fetch("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: loginEmail, password: loginPass }),
       });
 
-      if (error) {
-        if (error.message.includes("Invalid login credentials")) {
-          setErrorMessage("Invalid email or password. Please verify your credentials.");
-        } else if (error.message.includes("Email not confirmed")) {
-          setErrorMessage("Email address not confirmed. Please check your Supabase Auth settings.");
-        } else {
-          setErrorMessage(error.message);
-        }
+      const result = await res.json();
+
+      if (!res.ok || result.error) {
+        setErrorMessage(result.error || "Authentication failed. Please verify credentials.");
         setLoading(false);
+        setActiveButton(null);
         return;
       }
 
-      if (data?.session) {
-        router.refresh();
-        router.push(redirectedFrom || "/dashboard");
-      }
+      // Hard redirect to dashboard: forces clean browser session and purges Next.js router cache
+      window.location.href = redirectedFrom || "/dashboard";
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "An unexpected network error occurred. Please try again.";
+      const msg = err instanceof Error ? err.message : "Network error during authentication.";
       setErrorMessage(msg);
       setLoading(false);
+      setActiveButton(null);
     }
   };
 
-  // 1-Click direct authentication with test tenants
-  const handleDirectLogin = async (tenantEmail: string, tenantPass: string) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+    setActiveButton("form");
+    await executeServerLogin(email.trim(), password);
+  };
+
+  const handleDirectLogin = async (tenantEmail: string, tenantPass: string, tenantKey: string) => {
     setEmail(tenantEmail);
     setPassword(tenantPass);
-    setErrorMessage(null);
-    setLoading(true);
-
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: tenantEmail,
-        password: tenantPass,
-      });
-
-      if (error) {
-        setErrorMessage(error.message);
-        setLoading(false);
-        return;
-      }
-
-      if (data?.session) {
-        router.refresh();
-        router.push(redirectedFrom || "/dashboard");
-      }
-    } catch (err: unknown) {
-      setErrorMessage(err instanceof Error ? err.message : "Authentication failed.");
-      setLoading(false);
-    }
+    setActiveButton(tenantKey);
+    await executeServerLogin(tenantEmail, tenantPass);
   };
 
   return (
@@ -130,7 +105,7 @@ export function LoginForm() {
           Insigra Reports
         </h1>
         <p className="text-xs text-slate-500 mt-1">
-          Secure Multi-Tenant Marketing Analytics
+          Marketing Analytics Platform
         </p>
       </div>
 
@@ -155,7 +130,7 @@ export function LoginForm() {
       )}
 
       {/* Form */}
-      <form onSubmit={handleLogin} className="space-y-4" noValidate>
+      <form onSubmit={handleFormSubmit} className="space-y-4" noValidate>
         <div>
           <label 
             htmlFor="email" 
@@ -223,7 +198,7 @@ export function LoginForm() {
           disabled={loading}
           className="w-full mt-2 py-2.5 px-4 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-medium text-xs rounded-xl shadow-md shadow-purple-600/25 flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-600 focus:ring-offset-2"
         >
-          {loading ? (
+          {loading && activeButton === "form" ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
               <span>Authenticating...</span>
@@ -239,7 +214,7 @@ export function LoginForm() {
 
       {/* 1-Click Direct Test Logins */}
       <div className="mt-6 pt-5 border-t border-slate-100">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2.5 flex items-center gap-1.5">
           <Building2 className="w-3.5 h-3.5" />
           1-Click Test Access
         </p>
@@ -247,27 +222,35 @@ export function LoginForm() {
           <button
             type="button"
             disabled={loading}
-            onClick={() => handleDirectLogin("alpha@test.com", "AlphaTest2026!")}
-            className="p-2.5 text-left border border-purple-200 bg-purple-50/80 hover:bg-purple-100 rounded-xl transition cursor-pointer disabled:opacity-60 flex flex-col justify-between group"
+            onClick={() => handleDirectLogin("alpha@test.com", "AlphaTest2026!", "alpha")}
+            className="p-3 text-left border border-purple-200 bg-purple-50/80 hover:bg-purple-100 rounded-xl transition cursor-pointer disabled:opacity-60 flex flex-col justify-between group"
           >
             <div className="font-bold text-purple-900 group-hover:text-purple-950 flex items-center justify-between">
               <span>Alpha Ltd</span>
-              <ArrowRight className="w-3 h-3 text-purple-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+              {loading && activeButton === "alpha" ? (
+                <Loader2 className="w-3 h-3 text-purple-600 animate-spin" />
+              ) : (
+                <ArrowRight className="w-3 h-3 text-purple-600 opacity-60 group-hover:opacity-100 transition-opacity" />
+              )}
             </div>
-            <div className="text-purple-700/70 font-mono text-[10px] truncate mt-0.5">alpha@test.com</div>
+            <div className="text-purple-700/70 font-mono text-[10px] truncate mt-1">alpha@test.com</div>
           </button>
 
           <button
             type="button"
             disabled={loading}
-            onClick={() => handleDirectLogin("beta@test.com", "BetaTest2026!")}
-            className="p-2.5 text-left border border-slate-200 bg-slate-50 hover:bg-slate-100/90 rounded-xl transition cursor-pointer disabled:opacity-60 flex flex-col justify-between group"
+            onClick={() => handleDirectLogin("beta@test.com", "BetaTest2026!", "beta")}
+            className="p-3 text-left border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded-xl transition cursor-pointer disabled:opacity-60 flex flex-col justify-between group"
           >
             <div className="font-bold text-slate-900 group-hover:text-black flex items-center justify-between">
               <span>Beta Ltd</span>
-              <ArrowRight className="w-3 h-3 text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+              {loading && activeButton === "beta" ? (
+                <Loader2 className="w-3 h-3 text-slate-600 animate-spin" />
+              ) : (
+                <ArrowRight className="w-3 h-3 text-slate-600 opacity-60 group-hover:opacity-100 transition-opacity" />
+              )}
             </div>
-            <div className="text-slate-500 font-mono text-[10px] truncate mt-0.5">beta@test.com</div>
+            <div className="text-slate-500 font-mono text-[10px] truncate mt-1">beta@test.com</div>
           </button>
         </div>
       </div>

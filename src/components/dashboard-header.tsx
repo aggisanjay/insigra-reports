@@ -31,8 +31,7 @@ export function DashboardHeader({
     try {
       setSigningOut(true);
       await supabase.auth.signOut();
-      router.refresh();
-      router.push("/login");
+      window.location.href = "/login";
     } catch (err) {
       console.error("Sign-out error:", err);
       // Fallback redirect via server route
